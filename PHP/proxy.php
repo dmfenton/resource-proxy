@@ -3,7 +3,7 @@
 /**
  * PHP Proxy Client
  *
- * Version 1.1 beta
+ * Version 1.0
  * See https://github.com/Esri/resource-proxy for more information.
  *
  */
@@ -732,15 +732,9 @@ class Proxy {
 
         }
 
-        if (strpos($this->proxyBody,'"code":403') !== false) {
-        
-            $isUnauthorized = true;
-        
-        }
-
         $errorCode = $jsonData->{'error'}->{'code'};
 
-        if($errorCode == 499 || $errorCode == 498 || $errorCode == 403)
+        if($errorCode == 499 || $errorCode == 498)
         {
             $isUnauthorized = true;
 
@@ -807,34 +801,8 @@ class Proxy {
         curl_setopt($this->ch, CURLOPT_FOLLOWLOCATION, true);
 
     }
-    
-    public function curlError()
-    {
-        // see full of cURL error codes at http://curl.haxx.se/libcurl/c/libcurl-errors.html
-    
-        $message = "cURL error (" . curl_errno($this->ch) . "): "
-                . curl_error($this->ch) . ".";
-    
-        $this->proxyLog->log($message);
-    
-        header('Status: 502', true, 502);  // 502 Bad Gateway -  The server, while acting as a gateway or proxy, received an invalid response from the upstream server it accessed in attempting to fulfill the request.
-    
-        header('Content-Type: application/json');
-    
-        $configError = array(
-                "error" => array("code" => 502,
-                        "details" => array($message),
-                        "message" => "Proxy failed due to curl error."
-                ));
-    
-        echo json_encode($configError);
-    
-        curl_close($this->ch);
-    
-        $this->ch = null;
-    
-        exit();
-    }
+
+
 
     public function proxyGet() {
 
@@ -854,7 +822,7 @@ class Proxy {
 
             if(curl_errno($this->ch) > 0 || empty($this->response))
             {
-                $this->curlError();
+                $this->proxyLog->log("Curl error or no response: " . curl_error($this->ch));
 
             }else{
 
@@ -919,7 +887,7 @@ class Proxy {
 
         if(curl_errno($this->ch) > 0 || empty($this->response))
         {
-            $this->curlError();
+            $this->proxyLog->log("Curl error or no response: " . curl_error($this->ch));
 
         }else{
 
@@ -979,7 +947,7 @@ class Proxy {
 
             if(curl_errno($this->ch) > 0 || empty($this->response))
             {
-                $this->curlError();
+                $this->proxyLog->log("Curl error or no response: " . curl_error($this->ch));
             }else{
 
                 $this->setProxyHeaders();
@@ -1114,7 +1082,7 @@ class Proxy {
 
         }else{
 
-            $this->proxyLog->log("Can not determine if OAuth or Twitter Server means of authentication.  Check config for errors.");
+            $this->proxyLog->log("Can not determine if OAuth or ArcGIS Server means of authentication.  Check config for errors.");
         }
 
         return $token;
@@ -1143,9 +1111,9 @@ class Proxy {
 
     public function doUserPasswordLogin() {
 
-        $this->proxyLog->log("Resource using Twitter Server security");
+        $this->proxyLog->log("Resource using ArcGIS Server security");
 
-        $tokenServiceUri = 'https://api.twitter.com/ouath2/token';
+        $tokenServiceUri = $this->getTokenEndpoint();
 
         $this->proxyPost($tokenServiceUri, array (
                 'request' => 'getToken',
@@ -1165,17 +1133,17 @@ class Proxy {
 
     public function getTokenEndpoint()
     {
-        if ($this->contains($this->proxyUrl, "/rest/") !== false){
+        if (stripos($this->resource['url'], "/rest/") !== false){
             
-            $position = stripos($this->proxyUrl, "/rest/");
+            $position = stripos($this->resource['url'], "/rest/");
             
-            $infoUrl = substr($this->proxyUrl,0,$position) . "/rest/info";
+            $infoUrl = substr($this->resource['url'],0,$position) . "/rest/info";
         
-        } else if ($this->contains($this->proxyUrl, "/sharing/") !== false){
+        } else if (stripos($this->resource['url'], "/sharing/") !== false){
 
-            $position = stripos($this->proxyUrl, "/sharing/");
+            $position = stripos($this->resource['url'], "/sharing/");
             
-            $infoUrl = substr($this->proxyUrl,0,$position) . "/sharing/rest/info";    
+            $infoUrl = substr($this->resource['url'],0,$position) . "/sharing/rest/info";    
 
         }else{
 
@@ -1204,7 +1172,7 @@ class Proxy {
 
     public function doAppLogin()
     {
-        $this->resource['oauth2endpoint'] = isset($this->resource['oauth2endpoint']) ? $this->resource['oauth2endpoint'] : "https://api.twitter.com/oauth2/";
+        $this->resource['oauth2endpoint'] = isset($this->resource['oauth2endpoint']) ? $this->resource['oauth2endpoint'] : "https://arcgis.com/sharing/oauth2/";
 
         if (substr($this->resource['oauth2endpoint'], -1) != '/')
         {
@@ -1252,7 +1220,11 @@ class Proxy {
 
         $isAllowedApplication = false;
 
-        if (in_array($this->referer, $this->proxyConfig['allowedreferers'])) {
+        $domain = substr($_SERVER['HTTP_REFERER'], strpos($this->referer, '://') + 3);
+
+        $domain = substr($domain, 0, strpos($domain, '/'));
+
+        if (in_array($domain, $this->proxyConfig['allowedreferers'])) {
 
             $isAllowedApplication = true;
 
